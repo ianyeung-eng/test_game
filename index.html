@@ -43,7 +43,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Micro:bit 3D 立方體避障遊戲</title>
-    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; margin: 0; }
         #gameArea { width: 100vw; height: 80vh; }
@@ -71,37 +70,37 @@
     <button id="disconnectBtn" onclick="disconnectMicrobit()" disabled>斷開連接</button>
     <div id="status">狀態：未連接</div>
 
-    <script>
-        // 檢查 Three.js 是否載入
-        if (typeof THREE === 'undefined') {
-            console.error('Three.js 未正確載入，請檢查 CDN 連結或網路連線。');
-            document.getElementById('status').textContent = '錯誤：Three.js 未載入，請檢查網路';
-        } else {
-            console.log('Three.js 已成功載入');
-            init3D();
-        }
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
-        // Web Bluetooth UART UUIDs
-        const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-        const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
-        const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
-
+        // 全域變數
         let device, server, service, txCharacteristic, rxCharacteristic;
         let gameRunning = false;
         let score = 0;
         let gameOver = false;
-
-        const statusEl = document.getElementById('status');
-        const scoreEl = document.getElementById('score');
-        const gameOverEl = document.getElementById('gameOver');
-
-        // Three.js 變數
         let scene, camera, renderer;
         let cube; // 立方體
         let obstacles = []; // 球體障礙物陣列
         let boundary; // 邊界盒子
         let dx = 0, dy = 0; // 移動速度
         const maxSpeed = 0.1; // 最大速度（3D 單位）
+        const statusEl = document.getElementById('status');
+        const scoreEl = document.getElementById('score');
+        const gameOverEl = document.getElementById('gameOver');
+
+        // Web Bluetooth UART UUIDs
+        const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+        const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+        const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+        // 檢查 Three.js 是否載入
+        if (typeof THREE === 'undefined') {
+            console.error('Three.js 未正確載入，請檢查 CDN 連結或網路連線。');
+            statusEl.textContent = '錯誤：Three.js 未載入，請檢查網路';
+        } else {
+            console.log('Three.js 已成功載入');
+            init3D();
+        }
 
         // 初始化 3D 場景
         function init3D() {
@@ -216,7 +215,7 @@
                 server = await device.gatt.connect();
                 service = await server.getPrimaryService(UART_SERVICE_UUID);
                 txCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
-                txCharacteristic.startNotifications();
+                await txCharacteristic.startNotifications();
                 txCharacteristic.addEventListener('characteristicvaluechanged', handleReceivedData);
                 rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
 
@@ -225,6 +224,7 @@
                 statusEl.textContent = '已連接 micro:bit';
             } catch (error) {
                 statusEl.textContent = `連接失敗: ${error.message}`;
+                console.error('Bluetooth 連接錯誤:', error);
             }
         }
 
