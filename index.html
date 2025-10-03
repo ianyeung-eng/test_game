@@ -44,7 +44,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Micro:bit 3D 立方體旋轉控制</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; margin: 0; }
+        body { font-family: Arial, sans-serif; text-align: center; background: #d3d3d3; margin: 0; }
         #gameArea { width: 100vw; height: 80vh; }
         button { padding: 10px 20px; margin: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
         button:hover { background: #45a049; }
@@ -59,8 +59,8 @@
     <div id="gameArea"></div>
 
     <!-- 控制按鈕 -->
-    <button id="connectBtn" onclick="connectMicrobit()">連接 micro:bit</button>
-    <button id="disconnectBtn" onclick="disconnectMicrobit()" disabled>斷開連接</button>
+    <button id="connectBtn">連接 micro:bit</button>
+    <button id="disconnectBtn" disabled>斷開連接</button>
     <div id="status">狀態：未連接</div>
 
     <script type="module">
@@ -74,6 +74,8 @@
         let rotationX = 0, rotationY = 0; // 旋轉角度（弧度）
         const maxRotationSpeed = 0.005; // 最大旋轉速度（弧度/更新）
         const statusEl = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
 
         // Web Bluetooth UART UUIDs
         const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -103,8 +105,8 @@
             scene.add(light);
             scene.add(new THREE.AmbientLight(0x404040));
 
-            // 立方體
-            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            // 立方體（放大 3 倍）
+            const geometry = new THREE.BoxGeometry(3, 3, 3);
             const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
             cube = new THREE.Mesh(geometry, material);
             scene.add(cube);
@@ -150,8 +152,8 @@
                 txCharacteristic.addEventListener('characteristicvaluechanged', handleReceivedData);
                 rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
 
-                document.getElementById('connectBtn').disabled = true;
-                document.getElementById('disconnectBtn').disabled = false;
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
                 statusEl.textContent = '已連接 micro:bit';
             } catch (error) {
                 statusEl.textContent = `連接失敗: ${error.message}`;
@@ -164,8 +166,8 @@
             if (device && device.gatt.connected) {
                 device.gatt.disconnect();
                 statusEl.textContent = '已斷開連接';
-                document.getElementById('connectBtn').disabled = false;
-                document.getElementById('disconnectBtn').disabled = true;
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
             }
         }
 
@@ -184,6 +186,10 @@
                 }
             }
         }
+
+        // 綁定按鈕事件
+        connectBtn.addEventListener('click', connectMicrobit);
+        disconnectBtn.addEventListener('click', disconnectMicrobit);
     </script>
 </body>
 </html>
