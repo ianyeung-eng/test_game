@@ -42,30 +42,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Micro:bit 3D 立方體避障遊戲</title>
+    <title>Micro:bit 3D 立方體旋轉控制</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; margin: 0; }
         #gameArea { width: 100vw; height: 80vh; }
         button { padding: 10px 20px; margin: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
         button:hover { background: #45a049; }
         #status { color: blue; margin: 10px; }
-        #score { font-size: 20px; margin: 10px; }
-        #gameOver { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 30px; color: red; display: none; z-index: 10; }
     </style>
 </head>
 <body>
-    <h1>Micro:bit 3D 立方體避障遊戲</h1>
-    <p>連接 micro:bit 後，傾斜 micro:bit 控制立方體在 3D 空間躲避來自四方的球體！</p>
+    <h1>Micro:bit 3D 立方體旋轉控制</h1>
+    <p>連接 micro:bit 後，傾斜 micro:bit 控制立方體旋轉（X 軸控制左右旋轉，Y 軸控制前後旋轉）！</p>
 
     <!-- 遊戲區域 -->
     <div id="gameArea"></div>
-    <div id="gameOver">Game Over!</div>
-
-    <!-- 計分 -->
-    <div id="score">分數: 0</div>
 
     <!-- 控制按鈕 -->
-    <button onclick="toggleGame()">開始/停止遊戲</button>
     <button id="connectBtn" onclick="connectMicrobit()">連接 micro:bit</button>
     <button id="disconnectBtn" onclick="disconnectMicrobit()" disabled>斷開連接</button>
     <div id="status">狀態：未連接</div>
@@ -75,18 +68,12 @@
 
         // 全域變數
         let device, server, service, txCharacteristic, rxCharacteristic;
-        let gameRunning = false;
-        let score = 0;
-        let gameOver = false;
         let scene, camera, renderer;
         let cube; // 立方體
-        let obstacles = []; // 球體障礙物陣列
         let boundary; // 邊界盒子
-        let dx = 0, dy = 0; // 移動速度
-        const maxSpeed = 0.1; // 最大速度（3D 單位）
+        let rotationX = 0, rotationY = 0; // 旋轉角度（弧度）
+        const maxRotationSpeed = 0.005; // 最大旋轉速度（弧度/更新）
         const statusEl = document.getElementById('status');
-        const scoreEl = document.getElementById('score');
-        const gameOverEl = document.getElementById('gameOver');
 
         // Web Bluetooth UART UUIDs
         const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -138,70 +125,14 @@
         // 動畫迴圈
         function animate() {
             requestAnimationFrame(animate);
-            if (gameRunning && !gameOver) {
-                updateCubePosition();
-                updateObstacles();
-            }
+            updateCubeRotation();
             renderer.render(scene, camera);
         }
 
-        // 更新立方體位置
-        function updateCubePosition() {
-            cube.position.x += dx;
-            cube.position.z += dy; // Y 軸控制 Z 深度（前後）
-            // 邊界檢查
-            if (cube.position.x < -9.5) cube.position.x = -9.5;
-            if (cube.position.x > 9.5) cube.position.x = 9.5;
-            if (cube.position.z < -9.5) cube.position.z = -9.5;
-            if (cube.position.z > 9.5) cube.position.z = 9.5;
-            // 相機跟隨
-            camera.position.x = cube.position.x;
-            camera.position.z = cube.position.z + 15;
-            camera.lookAt(cube.position);
-        }
-
-        // 生成球體障礙物
-        function createObstacle() {
-            if (gameRunning && !gameOver) {
-                const geometry = new THREE.SphereGeometry(0.5, 32, 32);
-                const material = new THREE.MeshBasicMaterial({ color: 0x0000ff });
-                const sphere = new THREE.Mesh(geometry, material);
-                // 從四方隨機位置生成
-                const direction = Math.floor(Math.random() * 4); // 0:左, 1:右, 2:前, 3:後
-                switch (direction) {
-                    case 0: sphere.position.set(-10, Math.random() * 10 - 5, Math.random() * 10 - 5); break; // 左
-                    case 1: sphere.position.set(10, Math.random() * 10 - 5, Math.random() * 10 - 5); break; // 右
-                    case 2: sphere.position.set(Math.random() * 10 - 5, Math.random() * 10 - 5, -10); break; // 前
-                    case 3: sphere.position.set(Math.random() * 10 - 5, Math.random() * 10 - 5, 10); break; // 後
-                }
-                scene.add(sphere);
-                obstacles.push(sphere);
-            }
-        }
-
-        // 更新障礙物並檢查碰撞
-        function updateObstacles() {
-            obstacles.forEach((obs, index) => {
-                // 向中心移動
-                obs.position.x += (0 - obs.position.x) * 0.05;
-                obs.position.z += (0 - obs.position.z) * 0.05;
-                // 碰撞檢測
-                const cubeBox = new THREE.Box3().setFromObject(cube);
-                const obsBox = new THREE.Box3().setFromObject(obs);
-                if (cubeBox.intersectsBox(obsBox)) {
-                    gameOver = true;
-                    gameRunning = false;
-                    gameOverEl.style.display = 'block';
-                    statusEl.textContent = `遊戲結束！最終分數: ${score}`;
-                }
-                // 超出邊界加分並移除
-                if (Math.abs(obs.position.x) > 10 || Math.abs(obs.position.z) > 10) {
-                    scene.remove(obs);
-                    obstacles.splice(index, 1);
-                    score++;
-                    scoreEl.textContent = `分數: ${score}`;
-                }
-            });
+        // 更新立方體旋轉
+        function updateCubeRotation() {
+            cube.rotation.x += rotationX;
+            cube.rotation.y += rotationY;
         }
 
         // 連接 micro:bit
@@ -248,30 +179,11 @@
                 let y = parseInt(yStr);
                 if (!isNaN(x) && !isNaN(y)) {
                     statusEl.textContent = `收到座標: X=${x}, Y=${y}`;
-                    dx = (Math.abs(x) < 100) ? 0 : (x / 1024) * maxSpeed;
-                    dy = (Math.abs(y) < 100) ? 0 : (y / 1024) * maxSpeed;
+                    rotationY = (Math.abs(x) < 100) ? 0 : (x / 1024) * maxRotationSpeed; // X 軸控制 Y 軸旋轉
+                    rotationX = (Math.abs(y) < 100) ? 0 : (y / 1024) * maxRotationSpeed; // Y 軸控制 X 軸旋轉
                 }
             }
         }
-
-        // 切換遊戲狀態
-        function toggleGame() {
-            gameRunning = !gameRunning;
-            gameOver = false;
-            gameOverEl.style.display = 'none';
-            if (gameRunning) {
-                score = 0;
-                scoreEl.textContent = `分數: ${score}`;
-                obstacles.forEach(obs => scene.remove(obs));
-                obstacles = [];
-                statusEl.textContent = '遊戲開始！傾斜 micro:bit 控制立方體';
-            } else {
-                statusEl.textContent = '遊戲暫停';
-            }
-        }
-
-        // 每 1000ms 生成障礙物
-        setInterval(createObstacle, 1000);
     </script>
 </body>
 </html>
