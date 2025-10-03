@@ -1,0 +1,277 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Micro:bit 3D 立方體避障遊戲</title>
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; margin: 0; }
+        #gameArea { width: 100vw; height: 80vh; }
+        button { padding: 10px 20px; margin: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        button:hover { background: #45a049; }
+        #status { color: blue; margin: 10px; }
+        #score { font-size: 20px; margin: 10px; }
+        #gameOver { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 30px; color: red; display: none; z-index: 10; }
+    </style>
+</head>
+<body>
+    <h1>Micro:bit 3D 立方體避障遊戲</h1>
+    <p>連接 micro:bit 後，傾斜 micro:bit 控制立方體在 3D 空間躲避來自四方的球體！</p>
+
+    <!-- 遊戲區域 -->
+    <div id="gameArea"></div>
+    <div id="gameOver">Game Over!</div>
+
+    <!-- 計分 -->
+    <div id="score">分數: 0</div>
+
+    <!-- 控制按鈕 -->
+    <button onclick="toggleGame()">開始/停止遊戲</button>
+    <button id="connectBtn" onclick="connectMicrobit()">連接 micro:bit</button>
+    <button id="disconnectBtn" onclick="disconnectMicrobit()" disabled>斷開連接</button>
+    <div id="status">狀態：未連接</div>
+
+    <script>
+        // 檢查 Three.js 是否載入
+        if (typeof THREE === 'undefined') {
+            console.error('Three.js 未正確載入，請檢查 CDN 連結或網路連線。');
+            document.getElementById('status').textContent = '錯誤：Three.js 未載入，請檢查網路';
+        } else {
+            console.log('Three.js 已成功載入');
+            init3D();
+        }
+
+        // Web Bluetooth UART UUIDs
+        const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+        const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+        const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+        let device, server, service, txCharacteristic, rxCharacteristic;
+        let gameRunning = false;
+        let score = 0;
+        let gameOver = false;
+
+        const statusEl = document.getElementById('status');
+        const scoreEl = document.getElementById('score');
+        const gameOverEl = document.getElementById('gameOver');
+
+        // Three.js 變數
+        let scene, camera, renderer;
+        let cube; // 立方體
+        let obstacles = []; // 球體障礙物陣列
+        let boundary; // 邊界盒子
+        let dx = 0, dy = 0; // 移動速度
+        const maxSpeed = 0.1; // 最大速度（3D 單位）
+
+        // 初始化 3D 場景
+        function init3D() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight * 0.8);
+            document.getElementById('gameArea').appendChild(renderer.domElement);
+
+            // 燈光
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(0, 1, 1);
+            scene.add(light);
+            scene.add(new THREE.AmbientLight(0x404040));
+
+            // 立方體
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            cube = new THREE.Mesh(geometry, material);
+            scene.add(cube);
+
+            // 邊界盒子 (透明)
+            const boundaryGeometry = new THREE.BoxGeometry(20, 20, 20);
+            const boundaryMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true });
+            boundary = new THREE.Mesh(boundaryGeometry, boundaryMaterial);
+            scene.add(boundary);
+
+            camera.position.z = 15;
+            camera.position.y = 5;
+            camera.lookAt(0, 0, 0);
+
+            animate();
+        }
+
+        // 動畫迴圈
+        function animate() {
+            requestAnimationFrame(animate);
+            if (gameRunning && !gameOver) {
+                updateCubePosition();
+                updateObstacles();
+            }
+            renderer.render(scene, camera);
+        }
+
+        // 更新立方體位置
+        function updateCubePosition() {
+            cube.position.x += dx;
+            cube.position.z += dy; // Y 軸控制 Z 深度（前後）
+            // 邊界檢查
+            if (cube.position.x < -9.5) cube.position.x = -9.5;
+            if (cube.position.x > 9.5) cube.position.x = 9.5;
+            if (cube.position.z < -9.5) cube.position.z = -9.5;
+            if (cube.position.z > 9.5) cube.position.z = 9.5;
+            // 相機跟隨
+            camera.position.x = cube.position.x;
+            camera.position.z = cube.position.z + 15;
+            camera.lookAt(cube.position);
+        }
+
+        // 生成球體障礙物
+        function createObstacle() {
+            if (gameRunning && !gameOver) {
+                const geometry = new THREE.SphereGeometry(0.5, 32, 32);
+                const material = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+                const sphere = new THREE.Mesh(geometry, material);
+                // 從四方隨機位置生成
+                const direction = Math.floor(Math.random() * 4); // 0:左, 1:右, 2:前, 3:後
+                switch (direction) {
+                    case 0: sphere.position.set(-10, Math.random() * 10 - 5, Math.random() * 10 - 5); break; // 左
+                    case 1: sphere.position.set(10, Math.random() * 10 - 5, Math.random() * 10 - 5); break; // 右
+                    case 2: sphere.position.set(Math.random() * 10 - 5, Math.random() * 10 - 5, -10); break; // 前
+                    case 3: sphere.position.set(Math.random() * 10 - 5, Math.random() * 10 - 5, 10); break; // 後
+                }
+                scene.add(sphere);
+                obstacles.push(sphere);
+            }
+        }
+
+        // 更新障礙物並檢查碰撞
+        function updateObstacles() {
+            obstacles.forEach((obs, index) => {
+                // 向中心移動
+                obs.position.x += (0 - obs.position.x) * 0.05;
+                obs.position.z += (0 - obs.position.z) * 0.05;
+                // 碰撞檢測
+                const cubeBox = new THREE.Box3().setFromObject(cube);
+                const obsBox = new THREE.Box3().setFromObject(obs);
+                if (cubeBox.intersectsBox(obsBox)) {
+                    gameOver = true;
+                    gameRunning = false;
+                    gameOverEl.style.display = 'block';
+                    statusEl.textContent = `遊戲結束！最終分數: ${score}`;
+                }
+                // 超出邊界加分並移除
+                if (Math.abs(obs.position.x) > 10 || Math.abs(obs.position.z) > 10) {
+                    scene.remove(obs);
+                    obstacles.splice(index, 1);
+                    score++;
+                    scoreEl.textContent = `分數: ${score}`;
+                }
+            });
+        }
+
+        // 連接 micro:bit
+        async function connectMicrobit() {
+            try {
+                statusEl.textContent = '搜尋 micro:bit...';
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'BBC micro:bit' }],
+                    optionalServices: [UART_SERVICE_UUID]
+                });
+                server = await device.gatt.connect();
+                service = await server.getPrimaryService(UART_SERVICE_UUID);
+                txCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
+                txCharacteristic.startNotifications();
+                txCharacteristic.addEventListener('characteristicvaluechanged', handleReceivedData);
+                rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
+
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                statusEl.textContent = '已連接 micro:bit';
+            } catch (error) {
+                statusEl.textContent = `連接失敗: ${error.message}`;
+            }
+        }
+
+        // 斷開連接
+        function disconnectMicrobit() {
+            if (device && device.gatt.connected) {
+                device.gatt.disconnect();
+                statusEl.textContent = '已斷開連接';
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+            }
+        }
+
+        // 處理接收數據 (x+y 格式)
+        function handleReceivedData(event) {
+            let receivedData = new Uint8Array(event.target.value.buffer);
+            let receivedString = new TextDecoder().decode(receivedData).trim();
+            if (receivedString.includes('+')) {
+                let [xStr, yStr] = receivedString.split('+');
+                let x = parseInt(xStr);
+                let y = parseInt(yStr);
+                if (!isNaN(x) && !isNaN(y)) {
+                    statusEl.textContent = `收到座標: X=${x}, Y=${y}`;
+                    dx = (Math.abs(x) < 100) ? 0 : (x / 1024) * maxSpeed;
+                    dy = (Math.abs(y) < 100) ? 0 : (y / 1024) * maxSpeed;
+                }
+            }
+        }
+
+        // 切換遊戲狀態
+        function toggleGame() {
+            gameRunning = !gameRunning;
+            gameOver = false;
+            gameOverEl.style.display = 'none';
+            if (gameRunning) {
+                score = 0;
+                scoreEl.textContent = `分數: ${score}`;
+                obstacles.forEach(obs => scene.remove(obs));
+                obstacles = [];
+                statusEl.textContent = '遊戲開始！傾斜 micro:bit 控制立方體';
+            } else {
+                statusEl.textContent = '遊戲暫停';
+            }
+        }
+
+        // 每 1000ms 生成障礙物
+        setInterval(createObstacle, 1000);
+    </script>
+</body>
+</html>
