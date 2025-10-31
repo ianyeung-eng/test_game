@@ -1,195 +1,910 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
-<html lang="zh-TW">
+<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Micro:bit 3D 立方體旋轉控制</title>
+    <title>Egg Clicker Game with Pose Project</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: #d3d3d3; margin: 0; }
-        #gameArea { width: 100vw; height: 80vh; }
-        button { padding: 10px 20px; margin: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
-        button:hover { background: #45a049; }
-        #status { color: blue; margin: 10px; }
+      body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        min-height: 100vh;
+        margin: 0;
+        padding: 0;
+      }
+      .left-container {
+        flex: 1;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        padding: 15px;
+        margin: 10px;
+      }
+      .middle-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: #f9f9f9;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        margin: 10px;
+      }
+      .right-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: #f9f9f9;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        padding: 15px;
+        margin: 10px;
+      }
+      #egg {
+        width: 100px;
+        height: auto;
+        cursor: pointer;
+        transition: transform 0.1s;
+      }
+      #egg:active {
+        transform: scale(1.1);
+      }
+      #growthScore {
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+      #upgradeChicken {
+        width: 100px;
+        height: auto;
+        cursor: pointer;
+        transition: transform 0.1s;
+      }
+      #upgradeChicken:active {
+        transform: scale(1.1);
+      }
+      #upgradeInfo {
+        font-size: 16px;
+        text-align: center;
+        margin-bottom: 10px;
+      }
+      .header {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        width: 100%;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      h1 {
+        font-size: 24px;
+        color: #333;
+        text-align: center;
+        background: linear-gradient(45deg, #007BFF, #00C4B4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+      }
+      .section {
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 8px;
+        background: #f9f9f9;
+      }
+      button {
+        padding: 12px 20px;
+        font-size: 15px;
+        border: none;
+        border-radius: 6px;
+        background: #007BFF;
+        color: white;
+        cursor: pointer;
+        touch-action: manipulation;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      }
+      button:active {
+        transform: translateY(0);
+        box-shadow: none;
+      }
+      button:disabled {
+        background: #cccccc;
+        cursor: not-allowed;
+      }
+      select {
+        padding: 12px;
+        font-size: 15px;
+        width: 150px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        margin: 0 auto 10px;
+        display: block;
+      }
+      input[type="text"] {
+        padding: 12px;
+        font-size: 15px;
+        width: 250px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        margin: 0 auto 10px;
+        display: block;
+      }
+      input[type="number"] {
+        padding: 12px;
+        font-size: 15px;
+        width: 80px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        margin: 0 auto 10px;
+        display: block;
+      }
+      #connectBtn {
+        background: #28A745;
+      }
+      #connectUSBBtn {
+        background: #6F42C1;
+      }
+      #switchCameraBtn {
+        background: #17A2B8;
+        margin-top: 10px;
+      }
+      #startGameBtn {
+        background: #FF851B;
+      }
+      #resetGameBtn {
+        background: #DC3545;
+      }
+      #bluetoothWarning {
+        display: none;
+        padding: 10px;
+        border-radius: 6px;
+        background: #ffe6e6;
+        color: #DC3545;
+        font-size: 14px;
+        text-align: center;
+        margin-bottom: 10px;
+      }
+      #webcam-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin: 10px 0;
+        overflow: hidden;
+      }
+      #webcam-container video {
+        display: none;
+      }
+      #webcam-container canvas {
+        width: 192px;
+        height: 192px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        object-fit: contain;
+      }
+      #predictions {
+        margin: 10px 0;
+        text-align: left;
+      }
+      #status {
+        padding: 10px;
+        border-radius: 6px;
+        font-size: 14px;
+        text-align: center;
+        transition: opacity 0.5s;
+      }
+      #status.success {
+        background: #e6ffed;
+        color: #28A745;
+      }
+      #status.error {
+        background: #ffe6e6;
+        color: #DC3545;
+      }
+      .prediction-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 8px;
+        padding: 5px;
+        border-radius: 4px;
+      }
+      .prediction-item.highest {
+        background: #e6f3ff;
+        font-weight: bold;
+      }
+      .prediction-label {
+        width: 150px;
+        font-size: 13px;
+      }
+      .prediction-value {
+        width: 60px;
+        font-size: 13px;
+        text-align: right;
+      }
+      .prediction-bar {
+        width: 100px;
+        margin-left: 8px;
+      }
+      progress {
+        width: 100%;
+        height: 10px;
+        border-radius: 5px;
+        background: #e0e0e0;
+        border: none;
+      }
+      progress::-webkit-progress-bar {
+        background: #e0e0e0;
+        border-radius: 5px;
+      }
+      progress::-webkit-progress-value {
+        background: linear-gradient(90deg, #ff6b6b, #28A745);
+        border-radius: 5px;
+        transition: width 0.3s ease;
+      }
+      progress::-moz-progress-bar {
+        background: linear-gradient(90deg, #ff6b6b, #28A745);
+        border-radius: 5px;
+        transition: width 0.3s ease;
+      }
+      .spinner {
+        display: none;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #007BFF;
+        border-radius: 50%;
+        width: 18px;
+        height: 18px;
+        animation: spin 1s linear infinite;
+        margin: 8px auto;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      #gameStatus {
+        text-align: center;
+        font-size: 16px;
+        margin: 10px 0;
+      }
+      #targetClass {
+        font-weight: bold;
+        color: #007BFF;
+      }
+      #timer {
+        font-weight: bold;
+        color: #28A745;
+      }
+      #matchCount {
+        font-weight: bold;
+        color: #FF851B;
+      }
+      #gameResult {
+        display: none;
+        text-align: center;
+        font-size: 16px;
+        margin: 10px 0;
+        color: #28A745;
+      }
+      .hidden {
+        display: none;
+      }
+      @media (max-width: 800px) {
+        body {
+          flex-direction: column;
+        }
+        .left-container {
+          max-width: 100%;
+          margin: 10px 10px 0 10px;
+        }
+        .middle-container {
+          min-height: 300px;
+          margin: 0 10px;
+        }
+        .right-container {
+          min-height: 300px;
+          margin: 0 10px 10px 10px;
+        }
+      }
     </style>
 </head>
 <body>
-    <h1>Micro:bit 3D 立方體旋轉控制</h1>
-    <p>連接 micro:bit 後，傾斜 micro:bit 控制立方體旋轉（X 軸控制左右旋轉，Y 軸控制前後旋轉）！</p>
+    <div class="left-container">
+      <div class="header">
+        <div>
+          <button id="connectBtn" title="連接到 micro:bit（藍牙）">Connect Bluetooth</button>
+          <button id="connectUSBBtn" title="連接到 micro:bit（USB）">Connect USB</button>
+        </div>
+      </div>
+      <div id="bluetoothWarning"></div>
+      <h1><span id="projectTitle">Pose Project</span></h1>
 
-    <!-- 遊戲區域 -->
-    <div id="gameArea"></div>
+      <div class="section" id="model-section">
+        <h2>Model URL</h2>
+        <input type="text" id="modelInput" placeholder="Enter Teachable Machine model URL">
+        <button id="loadModelBtn" title="載入 Teachable Machine 模型">Load Model</button>
+        <div id="status"></div>
+        <div id="modelSpinner" class="spinner"></div>
+      </div>
 
-    <!-- 控制按鈕 -->
-    <button id="connectBtn">連接 micro:bit</button>
-    <button id="disconnectBtn" disabled>斷開連接</button>
-    <div id="status">狀態：未連接</div>
+      <div class="section" id="webcam-section">
+        <h2>Webcam Preview</h2>
+        <div id="webcam-container">
+          <button id="switchCameraBtn" title="切換前後攝影機" disabled>Switch to Front Camera</button>
+        </div>
+        <button id="webcamBtn" title="開啟 webcam 進行辨識" disabled>Open Webcam</button>
+        <div id="predictions"></div>
+        <div id="webcamSpinner" class="spinner"></div>
+      </div>
 
-    <script type="module">
-        import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+      <div class="section" id="gameSection">
+        <h2>Matching Game</h2>
+        <label for="matchGoal">Number of Matches (5-20):</label>
+        <input type="number" id="matchGoal" min="5" max="20" value="10">
+        <button id="startGameBtn" title="開始遊戲" disabled>Start Game</button>
+        <button id="resetGameBtn" title="重置遊戲" disabled>Reset Game</button>
+        <div id="gameStatus">
+          <p>Target: <span id="targetClass"></span></p>
+          <p>Matches: <span id="matchCount">0</span>/<span id="currentMatchGoal">10</span></p>
+          <p>Time: <span id="timer">0</span> seconds</p>
+        </div>
+        <div id="gameResult"></div>
+      </div>
+    </div>
 
-        // 全域變數
-        let device, server, service, txCharacteristic, rxCharacteristic;
-        let scene, camera, renderer;
-        let cube; // 立方體
-        let boundary; // 邊界盒子
-        let rotationX = 0, rotationY = 0; // 旋轉角度（弧度）
-        const maxRotationSpeed = 0.005; // 最大旋轉速度（弧度/更新）
-        const statusEl = document.getElementById('status');
-        const connectBtn = document.getElementById('connectBtn');
-        const disconnectBtn = document.getElementById('disconnectBtn');
+    <div class="middle-container">
+      <div id="growthScore">成長分數: 0</div>
+      <img id="egg" src="https://png.pngtree.com/png-vector/20240521/ourmid/pngtree-fresh-single-egg-png-image_12504967.png" alt="Egg">
+    </div>
 
-        // Web Bluetooth UART UUIDs
-        const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-        const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
-        const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+    <div class="right-container">
+      <h1>Store</h1>
+      <div id="upgradeInfo">Level: 1, Cost to Upgrade: 15</div>
+      <img id="upgradeChicken" src="https://static.vecteezy.com/system/resources/previews/048/394/923/non_2x/young-white-hen-chicken-isolated-on-transparent-background-free-png.png" alt="Upgrade Chicken">
+    </div>
 
-        // 檢查 Three.js 是否載入
-        if (typeof THREE === 'undefined') {
-            console.error('Three.js 未正確載入，請檢查 CDN 連結或網路連線。');
-            statusEl.textContent = '錯誤：Three.js 未載入，請檢查網路';
+    <script>
+      const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+      const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+      const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+      let uBitDevice;
+      let rxCharacteristic;
+      let serialPort;
+      let model, webcam, labelContainer, maxPredictions, lastSentClass = null;
+      let isPredicting = false;
+      let ctx = null;
+      let currentFacingMode = "environment";
+
+      // Game variables
+      let isGameMode = false;
+      let classNames = [];
+      let currentTarget = "";
+      let lastTarget = "";
+      let matchCount = 0;
+      let matchGoal = 10;
+      let gameStartTime = null;
+      let gameTimerInterval = null;
+
+      // Egg Clicker variables
+      let growthScore = 0;
+      let upgradeLevel = 1;
+      let growthIncrement = 1;
+      const egg = document.getElementById('egg');
+      const growthScoreDisplay = document.getElementById('growthScore');
+      const upgradeChicken = document.getElementById('upgradeChicken');
+      const upgradeInfo = document.getElementById('upgradeInfo');
+      egg.addEventListener('click', increaseGrowthScore);
+      upgradeChicken.addEventListener('click', upgradeFunction);
+
+      function increaseGrowthScore() {
+        growthScore += growthIncrement;
+        growthScoreDisplay.innerText = `成長分數: ${growthScore}`;
+      }
+
+      function upgradeFunction() {
+        const cost = 15 * upgradeLevel;
+        if (growthScore >= cost) {
+          growthScore -= cost;
+          upgradeLevel++;
+          growthIncrement = upgradeLevel;
+          growthScoreDisplay.innerText = `成長分數: ${growthScore}`;
+          upgradeInfo.innerText = `Level: ${upgradeLevel}, Cost to Upgrade: ${15 * upgradeLevel}`;
         } else {
-            console.log('Three.js 已成功載入');
-            init3D();
+          alert("Not enough growth score to upgrade!");
         }
+      }
 
-        // 初始化 3D 場景
-        function init3D() {
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            renderer = new THREE.WebGLRenderer();
-            renderer.setSize(window.innerWidth, window.innerHeight * 0.8);
-            document.getElementById('gameArea').appendChild(renderer.domElement);
-
-            // 燈光
-            const light = new THREE.DirectionalLight(0xffffff, 1);
-            light.position.set(0, 1, 1);
-            scene.add(light);
-            scene.add(new THREE.AmbientLight(0x404040));
-
-            // 立方體（放大 3 倍）
-            const geometry = new THREE.BoxGeometry(3, 3, 3);
-            const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-            cube = new THREE.Mesh(geometry, material);
-            scene.add(cube);
-
-            // 邊界盒子 (透明)
-            const boundaryGeometry = new THREE.BoxGeometry(20, 20, 20);
-            const boundaryMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true });
-            boundary = new THREE.Mesh(boundaryGeometry, boundaryMaterial);
-            scene.add(boundary);
-
-            camera.position.z = 15;
-            camera.position.y = 5;
-            camera.lookAt(0, 0, 0);
-
-            animate();
-        }
-
-        // 動畫迴圈
-        function animate() {
-            requestAnimationFrame(animate);
-            updateCubeRotation();
-            renderer.render(scene, camera);
-        }
-
-        // 更新立方體旋轉
-        function updateCubeRotation() {
-            cube.rotation.x += rotationX;
-            cube.rotation.y += rotationY;
-        }
-
-        // 連接 micro:bit
-        async function connectMicrobit() {
-            try {
-                statusEl.textContent = '搜尋 micro:bit...';
-                device = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'BBC micro:bit' }],
-                    optionalServices: [UART_SERVICE_UUID]
-                });
-                server = await device.gatt.connect();
-                service = await server.getPrimaryService(UART_SERVICE_UUID);
-                txCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
-                await txCharacteristic.startNotifications();
-                txCharacteristic.addEventListener('characteristicvaluechanged', handleReceivedData);
-                rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
-
-                connectBtn.disabled = true;
-                disconnectBtn.disabled = false;
-                statusEl.textContent = '已連接 micro:bit';
-            } catch (error) {
-                statusEl.textContent = `連接失敗: ${error.message}`;
-                console.error('Bluetooth 連接錯誤:', error);
+      // Check Bluetooth and Serial support
+      const connectBtn = document.getElementById("connectBtn");
+      const connectUSBBtn = document.getElementById("connectUSBBtn");
+      const bluetoothWarning = document.getElementById("bluetoothWarning");
+      function checkConnectivitySupport() {
+        if (!navigator.bluetooth && !navigator.serial) {
+          connectBtn.style.display = "none";
+          connectUSBBtn.style.display = "none";
+          bluetoothWarning.style.display = "block";
+          bluetoothWarning.innerText = "⚠️ 此瀏覽器不支援 USB 和藍牙連線，請使用 Chrome 瀏覽器（Android 6.0+ 或桌面）。";
+        } else if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
+          connectBtn.style.display = "none";
+          connectUSBBtn.style.display = "none";
+          bluetoothWarning.style.display = "block";
+          bluetoothWarning.innerText = "⚠️ USB 和藍牙功能需在 HTTPS 或 localhost 環境運行，請檢查網站協議。";
+        } else {
+          if (navigator.bluetooth) {
+            navigator.bluetooth.getAvailability().then(available => {
+              if (!available) {
+                connectBtn.style.display = "none";
+                bluetoothWarning.style.display = "block";
+                bluetoothWarning.innerText = "⚠️ 請開啟設備藍牙並確保 Chrome 已授予藍牙權限。";
+              } else {
+                connectBtn.style.display = "block";
+                bluetoothWarning.style.display = "none";
+              }
+            }).catch(() => {
+              connectBtn.style.display = "block";
+              bluetoothWarning.style.display = "none";
+            });
+          } else {
+            connectBtn.style.display = "none";
+          }
+          if (navigator.serial) {
+            connectUSBBtn.style.display = "block";
+          } else {
+            connectUSBBtn.style.display = "none";
+            if (!navigator.bluetooth) {
+              bluetoothWarning.style.display = "block";
+              bluetoothWarning.innerText = "⚠️ 此瀏覽器不支援 USB 和藍牙連線，請使用 Chrome 瀏覽器。";
             }
+          }
         }
+      }
+      checkConnectivitySupport();
 
-        // 斷開連接
-        function disconnectMicrobit() {
-            if (device && device.gatt.connected) {
-                device.gatt.disconnect();
-                statusEl.textContent = '已斷開連接';
-                connectBtn.disabled = false;
-                disconnectBtn.disabled = true;
+      // Bind button events
+      connectBtn.addEventListener("click", connectBluetooth);
+      connectBtn.addEventListener("touchstart", connectBluetooth);
+      connectUSBBtn.addEventListener("click", connectUSB);
+      connectUSBBtn.addEventListener("touchstart", connectUSB);
+      document.getElementById("loadModelBtn").addEventListener("click", loadModel);
+      document.getElementById("loadModelBtn").addEventListener("touchstart", loadModel);
+      document.getElementById("webcamBtn").addEventListener("click", setupWebcam);
+      document.getElementById("webcamBtn").addEventListener("touchstart", setupWebcam);
+      document.getElementById("modelInput").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") loadModel();
+      });
+      const switchCameraBtn = document.getElementById("switchCameraBtn");
+      switchCameraBtn.addEventListener("click", switchCamera);
+      switchCameraBtn.addEventListener("touchstart", switchCamera);
+      document.getElementById("startGameBtn").addEventListener("click", startGame);
+      document.getElementById("resetGameBtn").addEventListener("click", resetGame);
+
+      let projectType = "pose"; // Only pose project
+
+      function updateUI() {
+        const projectTitle = document.getElementById("projectTitle");
+        projectTitle.innerText = "Pose Project";
+        const webcamSection = document.getElementById("webcam-section");
+        const gameSection = document.getElementById("gameSection");
+        webcamSection.classList.remove("hidden");
+        document.getElementById("webcamBtn").disabled = model ? false : true;
+        gameSection.classList.remove("hidden");
+        document.getElementById("startGameBtn").disabled = model ? false : true;
+      }
+
+      async function connectBluetooth() {
+        try {
+          console.log("Requesting Bluetooth Device...");
+          uBitDevice = await navigator.bluetooth.requestDevice({
+            filters: [{ namePrefix: "BBC micro:bit" }],
+            optionalServices: [UART_SERVICE_UUID],
+          });
+          uBitDevice.addEventListener("gattserverdisconnected", onBluetoothDisconnected);
+          console.log("Connecting to GATT Server...");
+          const server = await uBitDevice.gatt.connect();
+          console.log("Getting Service...");
+          const service = await server.getPrimaryService(UART_SERVICE_UUID);
+          console.log("Getting Characteristics...");
+          const txCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
+          txCharacteristic.startNotifications();
+          txCharacteristic.addEventListener("characteristicvaluechanged", onTxCharacteristicValueChanged);
+          rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
+          console.log("Connected to micro:bit via Bluetooth");
+          updateStatus("藍牙已連接到 micro:bit", false);
+        } catch (error) {
+          console.error("Bluetooth connection failed:", error);
+          updateStatus("藍牙連接失敗: " + error.message, true);
+        }
+      }
+
+      async function connectUSB() {
+        try {
+          console.log("Requesting Serial Port...");
+          serialPort = await navigator.serial.requestPort({});
+          await serialPort.open({ baudRate: 9600 });
+          console.log("Connected to micro:bit via USB");
+          updateStatus("USB 已連接到 micro:bit", false);
+          serialPort.addEventListener("disconnect", () => {
+            console.log("USB port disconnected");
+            updateStatus("USB 已斷開連接", true);
+            serialPort = null;
+          });
+        } catch (error) {
+          console.error("USB connection failed:", error);
+          let errorMessage = "USB 連接失敗: " + error.message;
+          if (error.name === "NotFoundError") {
+            errorMessage = "USB 連接失敗: 未找到可用序列埠，請確認 micro:bit 已連接";
+          } else if (error.name === "SecurityError") {
+            errorMessage = "USB 連接失敗: 請在 HTTPS 或 localhost 環境運行";
+          }
+          updateStatus(errorMessage, true);
+        }
+      }
+
+      async function sendData(data) {
+        try {
+          if (serialPort) {
+            const writer = serialPort.writable.getWriter();
+            const encoder = new TextEncoder();
+            await writer.write(encoder.encode(data + "\n"));
+            writer.releaseLock();
+            console.log("Sent via USB:", data);
+            updateStatus(`已通過 USB 發送數據: ${data}`, false);
+            return;
+          }
+          if (rxCharacteristic) {
+            const encoder = new TextEncoder();
+            await queueGattOperation(() =>
+              rxCharacteristic.writeValue(encoder.encode(data + "\n")).then(() => {
+                console.log("Sent via Bluetooth:", data);
+                updateStatus(`已通過藍牙發送數據: ${data}`, false);
+              })
+            );
+            return;
+          }
+          console.warn("No device connected");
+          updateStatus("設備未連接，無法發送數據", true);
+        } catch (error) {
+          console.error("Send error:", error);
+          updateStatus("發送錯誤: " + error.message, true);
+        }
+      }
+
+      let queue = Promise.resolve();
+      function queueGattOperation(operation) {
+        queue = queue.then(operation, operation);
+        return queue;
+      }
+
+      function onTxCharacteristicValueChanged(event) {
+        let receivedData = [];
+        for (let i = 0; i < event.target.value.byteLength; i++) {
+          receivedData[i] = event.target.value.getUint8(i);
+        }
+        const receivedString = String.fromCharCode.apply(null, receivedData);
+        console.log("Received via Bluetooth:", receivedString);
+        updateStatus(`收到藍牙數據: ${receivedString}`, false);
+      }
+
+      function onBluetoothDisconnected(event) {
+        console.log("micro:bit Bluetooth disconnected");
+        updateStatus("藍牙已斷開連接", true);
+        rxCharacteristic = null;
+      }
+
+      function updateStatus(message, isError) {
+        const statusDiv = document.getElementById("status");
+        statusDiv.innerText = (isError ? "❌ " : "✅ ") + message;
+        statusDiv.className = isError ? "error" : "success";
+        if (!isError) {
+          setTimeout(() => {
+            statusDiv.style.opacity = 0;
+            setTimeout(() => {
+              statusDiv.innerText = "";
+              statusDiv.style.opacity = 1;
+            }, 500);
+          }, 3000);
+        }
+      }
+
+      function resetProject() {
+        if (isPredicting) {
+          isPredicting = false;
+          if (webcam) {
+            webcam.stop();
+            webcam = null;
+          }
+        }
+        model = null;
+        lastSentClass = null;
+        classNames = [];
+        document.getElementById("predictions").innerHTML = "";
+        document.getElementById("webcam-container").innerHTML = '<button id="switchCameraBtn" title="切換前後攝影機" disabled>Switch to Front Camera</button>';
+        document.getElementById("webcamBtn").disabled = true;
+        document.getElementById("startGameBtn").disabled = true;
+        resetGame();
+      }
+
+      async function loadModel() {
+        let modelUrl = document.getElementById('modelInput').value.trim();
+        if (!modelUrl) {
+          updateStatus("請輸入模型 URL", true);
+          return;
+        }
+        if (!modelUrl.endsWith('model.json')) {
+          modelUrl = modelUrl.replace(/\/$/, '') + '/model.json';
+        }
+        const metadataUrl = modelUrl.replace('model.json', 'metadata.json');
+        try {
+          document.getElementById("loadModelBtn").disabled = true;
+          document.getElementById("modelSpinner").style.display = "block";
+          model = await tmPose.load(modelUrl, metadataUrl);
+          maxPredictions = model.getTotalClasses();
+          classNames = model.getClassLabels();
+          console.log('Pose model loaded, classes:', classNames);
+          updateStatus("姿勢模型已成功載入", false);
+          document.getElementById("webcamBtn").disabled = false;
+          document.getElementById("startGameBtn").disabled = false;
+        } catch (error) {
+          console.error('Error loading model:', error);
+          updateStatus("模型載入失敗: " + error.message, true);
+        } finally {
+          document.getElementById("loadModelBtn").disabled = false;
+          document.getElementById("modelSpinner").style.display = "none";
+        }
+      }
+
+      async function setupWebcam() {
+        try {
+          if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
+            updateStatus("Webcam 功能需在 HTTPS 或 localhost 環境運行", true);
+            return;
+          }
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            updateStatus("此瀏覽器不支援攝影機，請檢查瀏覽器或設備設置", true);
+            return;
+          }
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = devices.filter(device => device.kind === 'videoinput');
+          console.log("Available video devices:", videoDevices);
+          if (videoDevices.length === 0) {
+            updateStatus("未找到可用攝影機，請檢查設備", true);
+            return;
+          }
+          document.getElementById("webcamBtn").disabled = true;
+          document.getElementById("webcamSpinner").style.display = "block";
+          const webcamContainer = document.getElementById("webcam-container");
+          webcamContainer.innerHTML = "";
+          webcamContainer.appendChild(switchCameraBtn);
+          const canvasElement = document.createElement("canvas");
+          canvasElement.width = 192;
+          canvasElement.height = 192;
+          webcamContainer.appendChild(canvasElement);
+          ctx = canvasElement.getContext("2d");
+          const flip = currentFacingMode === "user";
+          webcam = new tmPose.Webcam(192, 192, flip);
+          await webcam.setup();
+          await webcam.play();
+          labelContainer = document.getElementById("predictions");
+          labelContainer.innerHTML = "";
+          for (let i = 0; i < maxPredictions; i++) {
+            const item = document.createElement("div");
+            item.className = "prediction-item";
+            item.innerHTML = `
+              <span class="prediction-label"></span>
+              <span class="prediction-value"></span>
+              <progress class="prediction-bar" value="0" max="100"></progress>
+            `;
+            labelContainer.appendChild(item);
+          }
+          updateStatus("Webcam 已成功啟動", false);
+          switchCameraBtn.disabled = false;
+          switchCameraBtn.innerText = currentFacingMode === "environment" ? "Switch to Front Camera" : "Switch to Rear Camera";
+          if (model && !isPredicting) {
+            isPredicting = true;
+            window.requestAnimationFrame(loop);
+          }
+        } catch (error) {
+          console.error('Error accessing webcam:', error);
+          let errorMessage = "Webcam 啟動失敗: " + error.message;
+          if (error.name === "NotAllowedError") {
+            errorMessage = "Webcam 啟動失敗: 請允許攝影機權限";
+          } else if (error.name === "NotFoundError") {
+            errorMessage = "Webcam 啟動失敗: 未找到可用攝影機";
+          } else if (error.name === "NotReadableError") {
+            errorMessage = "Webcam 啟動失敗: 攝影機被其他應用程式佔用";
+          }
+          updateStatus(errorMessage, true);
+        } finally {
+          document.getElementById("webcamBtn").disabled = false;
+          document.getElementById("webcamSpinner").style.display = "none";
+        }
+      }
+
+      async function switchCamera() {
+        try {
+          switchCameraBtn.disabled = true;
+          document.getElementById("webcamSpinner").style.display = "block";
+          currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = devices.filter(device => device.kind === 'videoinput');
+          console.log("Available video devices for switch:", videoDevices);
+          if (videoDevices.length < 2) {
+            updateStatus(`無可用${currentFacingMode === "environment" ? "後置" : "前置"}攝影機`, true);
+            currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+            switchCameraBtn.disabled = false;
+            document.getElementById("webcamSpinner").style.display = "none";
+            return;
+          }
+          if (webcam) {
+            webcam.stop();
+          }
+          const flip = currentFacingMode === "user";
+          webcam = new tmPose.Webcam(192, 192, flip);
+          await webcam.setup();
+          await webcam.play();
+          switchCameraBtn.innerText = currentFacingMode === "environment" ? "Switch to Front Camera" : "Switch to Rear Camera";
+          updateStatus(`已切換到${currentFacingMode === "environment" ? "後置" : "前置"}攝影機`, false);
+        } catch (error) {
+          console.error('Error switching camera:', error);
+          updateStatus("切換攝影機失敗: " + error.message, true);
+          currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+          switchCameraBtn.innerText = currentFacingMode === "environment" ? "Switch to Front Camera" : "Switch to Rear Camera";
+        } finally {
+          switchCameraBtn.disabled = false;
+          document.getElementById("webcamSpinner").style.display = "none";
+        }
+      }
+
+      async function loop() {
+        if (!isPredicting) return;
+        if (model && webcam) {
+          webcam.update();
+          await predict();
+        }
+        window.requestAnimationFrame(loop);
+      }
+
+      async function predict() {
+        try {
+          const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
+          const prediction = await model.predict(posenetOutput);
+          let maxProb = 0;
+          let maxIndex = 0;
+          let highestClass = "";
+          for (let i = 0; i < maxPredictions; i++) {
+            const prob = (prediction[i].probability * 100).toFixed(2);
+            const item = labelContainer.childNodes[i];
+            item.querySelector(".prediction-label").innerText = prediction[i].className;
+            item.querySelector(".prediction-value").innerText = `${prob}%`;
+            item.querySelector(".prediction-bar").value = prob;
+            item.classList.toggle("highest", prob > maxProb);
+            if (prob > maxProb) {
+              maxProb = prob;
+              maxIndex = i;
+              highestClass = prediction[i].className;
             }
-        }
-
-        // 處理接收數據 (x+y 格式)
-        function handleReceivedData(event) {
-            let receivedData = new Uint8Array(event.target.value.buffer);
-            let receivedString = new TextDecoder().decode(receivedData).trim();
-            if (receivedString.includes('+')) {
-                let [xStr, yStr] = receivedString.split('+');
-                let x = parseInt(xStr);
-                let y = parseInt(yStr);
-                if (!isNaN(x) && !isNaN(y)) {
-                    statusEl.textContent = `收到座標: X=${x}, Y=${y}`;
-                    rotationY = (Math.abs(x) < 100) ? 0 : (x / 1024) * maxRotationSpeed; // X 軸控制 Y 軸旋轉
-                    rotationX = (Math.abs(y) < 100) ? 0 : (y / 1024) * maxRotationSpeed; // Y 軸控制 X 軸旋轉
-                }
+            if (prediction[i].probability >= 0.995 && prediction[i].className !== lastSentClass) {
+              await sendData(prediction[i].className);
+              lastSentClass = prediction[i].className;
             }
+          }
+          if (webcam.canvas && ctx && pose) {
+            ctx.drawImage(webcam.canvas, 0, 0);
+            const minPartConfidence = 0.5;
+            tmPose.drawKeypoints(pose.keypoints, minPartConfidence, ctx);
+            tmPose.drawSkeleton(pose.keypoints, minPartConfidence, ctx);
+          }
+          if (isGameMode && maxProb >= 99 && highestClass === currentTarget) {
+            matchCount++;
+            document.getElementById("matchCount").innerText = matchCount;
+            increaseGrowthScore(); // Increase growth score on score
+            if (matchCount >= matchGoal) {
+              endGame();
+            } else {
+              pickNewTarget();
+              updateStatus("匹配成功！下一目標: " + currentTarget, false);
+            }
+          }
+        } catch (error) {
+          console.error('Prediction error:', error);
+          updateStatus("預測錯誤: " + error.message, true);
         }
+      }
 
-        // 綁定按鈕事件
-        connectBtn.addEventListener('click', connectMicrobit);
-        disconnectBtn.addEventListener('click', disconnectMicrobit);
+      function startGame() {
+        if (classNames.length === 0) {
+          updateStatus("請先載入模型", true);
+          return;
+        }
+        if (!isPredicting) {
+          updateStatus("請先開啟 Webcam", true);
+          return;
+        }
+        matchGoal = parseInt(document.getElementById("matchGoal").value) || 10;
+        if (matchGoal < 5 || matchGoal > 20) {
+          updateStatus("題目數必須在5-20之間", true);
+          return;
+        }
+        document.getElementById("currentMatchGoal").innerText = matchGoal;
+        isGameMode = true;
+        matchCount = 0;
+        lastTarget = "";
+        gameStartTime = Date.now();
+        document.getElementById("matchCount").innerText = matchCount;
+        document.getElementById("timer").innerText = 0;
+        document.getElementById("gameResult").style.display = "none";
+        document.getElementById("startGameBtn").disabled = true;
+        document.getElementById("resetGameBtn").disabled = false;
+        pickNewTarget();
+        updateStatus("遊戲開始！匹配目標: " + currentTarget, false);
+        startTimer();
+      }
+
+      function resetGame() {
+        isGameMode = false;
+        matchCount = 0;
+        currentTarget = "";
+        lastTarget = "";
+        document.getElementById("targetClass").innerText = "";
+        document.getElementById("matchCount").innerText = 0;
+        document.getElementById("timer").innerText = 0;
+        document.getElementById("gameResult").style.display = "none";
+        document.getElementById("startGameBtn").disabled = model ? false : true;
+        document.getElementById("resetGameBtn").disabled = true;
+        stopTimer();
+        updateStatus("遊戲已重置", false);
+      }
+
+      function pickNewTarget() {
+        let randomIndex = Math.floor(Math.random() * classNames.length);
+        while (classNames[randomIndex] === lastTarget && classNames.length > 1) {
+          randomIndex = Math.floor(Math.random() * classNames.length);
+        }
+        currentTarget = classNames[randomIndex];
+        lastTarget = currentTarget;
+        document.getElementById("targetClass").innerText = currentTarget;
+      }
+
+      function startTimer() {
+        gameTimerInterval = setInterval(() => {
+          if (gameStartTime) {
+            const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+            document.getElementById("timer").innerText = elapsed;
+          }
+        }, 1000);
+      }
+
+      function stopTimer() {
+        clearInterval(gameTimerInterval);
+        gameTimerInterval = null;
+      }
+
+      function endGame() {
+        isGameMode = false;
+        const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+        document.getElementById("gameResult").innerText = `遊戲結束！總時間: ${elapsed} 秒`;
+        document.getElementById("gameResult").style.display = "block";
+        document.getElementById("targetClass").innerText = "";
+        stopTimer();
+        updateStatus("遊戲結束！總時間: " + elapsed + " 秒", false);
+        document.getElementById("startGameBtn").disabled = false;
+      }
+
+      updateUI(); // Initialize UI
     </script>
 </body>
 </html>
